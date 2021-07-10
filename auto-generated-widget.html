@@ -1139,6 +1139,8 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
 
             //var geom = new THREE.Geometry();
 
+			//debugger;
+
             var that = this;
             p.forEach(function createAllCircles(probe) {
 
@@ -1150,6 +1152,8 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
                 //console.log("adding circle. ctrx:", ctrx, "ctry:", ctry, "x", cx, "cy", cy);
                 circle.position.set(cx, cy, cz);
                 circleGrp.add(circle);
+
+				//debugger;
 
                 // create text label
                 var txtLbl = that.makeSprite({
@@ -1457,11 +1461,11 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
 
             //console.log("received probe response");
             if (result !== "alarm" && this.currentStep !== null) {
+			
                 console.log("received probe response: ", result);
                 var probe = this.probes[this.currentStep]; //pull current probe
 
-                probe.z = result.z;
-
+				probe.z = result.z;
                 probe.done = true;
                 probe.ts = new Date();
 
@@ -2670,7 +2674,7 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
               </div>
               <div class="input-group">
                 <div class="input-group-addon">Z</div>
-                <input type="text" class="form-control autolevel-elem al-coord maxneg-z" value="5" />
+                <input type="text" class="form-control autolevel-elem al-coord maxneg-z" value="-5" />
               </div>
             </div>
           </form>
