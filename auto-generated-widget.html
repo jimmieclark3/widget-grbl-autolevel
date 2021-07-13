@@ -203,6 +203,8 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
         desc: "Allows you to auto-level your PCB before milling. Most raw PCB boards have a slight warpage. This widget lets you probe the warpage and then it auto-scales your Gcode to match the warpage so you get very clean/predictable z-positions in your milling job.",
         publish: {},
         subscribe: {},
+		droppedGCode: "",
+		fileGCode: "",
         foreignPublish: {
             "/com-chilipeppr-widget-3dviewer/sceneadd": "We ask the 3D viewer to add THREE.js objects to the scene.",
             "/com-chilipeppr-widget-3dviewer/sceneremove": "We ask the 3D viewer to remove THREE.js objects from the scene.",
@@ -249,12 +251,15 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
             this.buildRecentFileMenu();
 
             // paste loader
-            $('#com-chilipeppr-widget-autolevel .dropdown-menu .paste-load').click(function(e) {
+            $('#com-chilipeppr-widget-autolevel .paste-load').click(function(e) {
                 e.stopPropagation();
             });
             var that = this;
-            $('#com-chilipeppr-widget-autolevel .dropdown-menu .paste-load-go').click(function(e) {
-                that.loadText();
+            $('#com-chilipeppr-widget-autolevel .paste-load-go').click(function(e) {
+                that.loadText(this);
+            });
+            $('#com-chilipeppr-widget-autolevel .gcode-clean-go').click(function(e) {
+                that.cleanGCode(this);
             });
 
             // exaggerate detail menu
@@ -271,6 +276,11 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
             $('.com-chilipeppr-widget-autolevel-envelope').click(this.envelope.bind(this));
             $('.com-chilipeppr-widget-autolevel-gcodeview').click(this.envelopeView.bind(this));
 
+			chilipeppr.subscribe("/com-chilipeppr-elem-dragdrop/ondropped", function(_gcodetext, other) {
+				this.droppedGCode = _gcodetext;
+			});
+			
+
             console.log(this.name + " done loading.");
         },
         showData: function() {
@@ -278,9 +288,12 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
             $('#com-chilipeppr-widget-modal-autolevel-view .modal-title').text("View Probe Data");
             $('#com-chilipeppr-widget-modal-autolevel-view').modal('show');
         },
-        loadText: function() {
+        loadText: function(obj) {
+			var within = obj.closest('.input-group');
+		
             console.log("loading probe data from paste");
-            var data = $('#com-chilipeppr-widget-autolevel .dropdown-menu .paste-load').val();
+			//For some reason there are 2? it appears that is a 2nd in a menu somewhere
+            var data = $(within).find('.paste-load').val();
             var name = "Paste: ";
             if (data.length > 20) name += data.substring(0, 20);
             else name += data;
@@ -307,6 +320,19 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
                 this.refreshProbeMatrix();
 
         },
+        cleanGCode: function(obj) {
+			var within = obj.closest('.input-group');
+			var $box = $(within).find('.gcode-clean')
+            $box.val("");
+			var txt = "";
+			
+			var lines = this.getCleanWSGCode();
+			lines.forEach(function(line) {
+				txt = txt + line + '\n';
+			});
+			
+			$box.val(txt);
+		},
         deleteRecentFiles: function() {
             console.log("deleting files");
             // loop thru file storage and delete entries that match this widget
@@ -558,7 +584,62 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
             $('#com-chilipeppr-widget-modal-autolevel-view .modal-title').text("Gcode with Auto-Level Applied");
             $('#com-chilipeppr-widget-modal-autolevel-view').modal('show');
         },
-        autolevelledGcode: null,
+        autolevelledGcode: null,	
+		getWSGCode:function() {
+			var gtext = "";
+			debugger;
+			
+			//if (gtext == "") {
+			//	var $eagle = $('.com-chilipeppr-widget-eagle-gcode');
+			
+			//	if ($eagle) {
+			//		gtext = $eagle.val();
+			//	}
+			//}
+			
+			if (gtext == "" || gtext == undefined) {
+				chilipeppr.subscribe("/com-chilipeppr-widget-gcode/recvGcode", function(data) {
+					gtext = data.lines;
+				});
+				chilipeppr.publish("/com-chilipeppr-widget-gcode/requestGcode");
+				chilipeppr.unsubscribe("/com-chilipeppr-widget-gcode/recvGcode");
+			}
+			
+			//if (this.droppedGCode.length !== 0) {
+			//	gtext = this.droppedGCode;
+			//}
+			
+			if (Array.isArray(gtext)) {
+				return gtext;
+			}
+		
+			var lines = gtext.match(/[^\r\n]+/g);
+			return lines;
+		},
+		getCleanWSGCode:function(obj) {
+			var lines = this.getWSGCode();
+		
+			var nlines = [];
+		
+			lines.forEach(function(line) {
+				var res = line.match(/\(al new z\)/i);
+				if (res) {
+					line = line.replace('(al new z)', '');
+					line = line.replace(/z {0,}(-{0,1}\d+\.{0,1}\d*)/i, '');
+				}
+
+				//If it has an original value, use it instead - then adjust the original with the new z
+				res = line.match(/\(al z mod (-{0,1}\d+\.{0,1}\d*)\)/i);
+				if (res) {
+					line = line.replace(/\(al z mod [^\)]*\)/i, '');
+					line = line.replace(/z {0,}(-{0,1}\d+\.{0,1}\d*)/i, "Z" + res[1]);
+				}
+				
+				nlines.push(line);
+			});
+			
+			return nlines;
+		},
         envelope: function(options) {
             // options are
             /* {
@@ -644,97 +725,189 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
 
             /* it would be more memory efficient to do this on the fly, line by line. */
             
-            
-            var gcode = this.user3dObject;
-            if (gcode === null) {
+			var vgcode = this.user3dObject;
+            if (vgcode === null) {
                 console.log("getting 3d obj from 3d viewer");
                 this.get3dObjectFrom3dViewer();
-                gcode = this.user3dObject;
+                vgcode = this.user3dObject;
             }
-            gcode.userData.lines.forEach(function(item) {
+            console.log("gcode:", vgcode);
+		
+			var lastZ;
+			var lastX;
+			var lastY;
+			
+			var _gcode = this.getCleanWSGCode();
+			
+            _gcode.forEach(function(item) {
                 // see if gcode line has z val
                 var newgcodeline = "";
-                if ('origtext' in item.args) {
-                    // this is gcode
-                    ctrtext++;
+				var orig = "";
+				var txt = "";
+				var cmd = "";
+				var isobj = false;
+				var x;
+				var y;
+				var z;
+				var alevelz;
+				
+				if (typeof(_gcode) == 'THREE.Object3D')
+				{
+					isobj = true;
+					orig = item.args.origtext;
+					if ('origtext' in item.args) {
+						newgcodeline = item.args.origtext;
+						txt = item.args.text;
+					} else if ('text' in item.args) {
+						newgcodeline = item.args.text;
+					}
+					cmd = item.args.cmd;
+					x = item.p2.x;
+					y = item.p2.y;
+					z = item.p2.z;
+					alevelz = item.p2.autolevelz;
+				}
+				else {
+					orig = item;
+					newgcodeline = item;
+					txt = item;
+					cmd = item;
+					alevelz = 0;
+					
+					
+					
+					var res = item.match(/x {0,}(-{0,1}\d+\.{0,1}\d*)/i);
+					if (res) {
+						x = Number(res[1]);
+					}
+					res = item.match(/y {0,}(-{0,1}\d+\.{0,1}\d*)/i);
+					if (res) {
+						y = Number(res[1]);
+					}
+					res = item.match(/z {0,}(-{0,1}\d+\.{0,1}\d*)/i);
+					if (res) {
+						z = Number(res[1]);
+					}
+				
+					
+					if (z != undefined) {
+						lastZ = z;
+					}
+					if (x != undefined) {
+						lastX = x;
+					}
+					if (y != undefined) {
+						lastY = y;
+					}
+				}
+			
+			
+				// this is gcode
+				ctrtext++;
 
-                    // set new line to current line just as a starting point
-                    // it will get overriden if we modify
-                    newgcodeline = item.args.origtext;
+				var scale = 1.0;
 
-                    // see if has z value
-                    var txt = item.args.text;
-                    //console.log("working on item:", item);
-                    if (txt.match(/z/i)) {
-                        // yes, there's a z value
-                        ctrtextwithz++;
+				//console.log("working on item:", item);
+				if (txt.match(/z/i)) {
+				
+					// yes, there's a z value
+					ctrtextwithz++;
 
-                        // now do raycast
-                        var startPoint = new THREE.Vector3(item.p2.x, item.p2.y, item.p2.z + 100);
-                        var ray = new THREE.Raycaster(startPoint, direction);
-                        var rayIntersects = ray.intersectObject(meshGrp, true);
-                        if (rayIntersects[0]) {
-                            //item.p2.origz = item.p2.z;
-                            item.p2.autolevelz = rayIntersects[0].point.z + item.p2.z;
-                            item.p2.autolevelz = item.p2.autolevelz.toFixed(4);
-                            // adjust gcode
-                            var origtext = item.args.origtext;
-                            if (origtext.match(/z {0,}(-{0,1}\d+\.{0,1}\d*)/i)) {
-                                var z = RegExp.$1;
-                                ctrtextwithzmatch++;
-                                var newtxt = origtext.replace(/z {0,}(-{0,1}\d+\.{0,1}\d*)/i, "Z" + item.p2.autolevelz);
-                                //item.args.oldtext = item.args.origtext;
-                                //item.args.origtext = newtxt + " (al z mod " + item.p2.origz + ")";
-                                newgcodeline = newtxt + " (al z mod " + item.p2.z + ")";
-                                //console.log("got z:", z, item.args);
+					if (x == undefined) {
+						//Since there is no Z, use the last Z either up or down depending
+						x = lastX;
+					}
+					if (y == undefined) {
+						//Since there is no Z, use the last Z either up or down depending
+						y = lastY;
+					}
+						
+					// now do raycast
+					var startPoint = new THREE.Vector3(x, y, z + 100);
+					var ray = new THREE.Raycaster(startPoint, direction);
+					var rayIntersects = ray.intersectObject(meshGrp, true);
+					if (rayIntersects[0]) {
+						//item.p2.origz = item.p2.z;
+						alevelz = (rayIntersects[0].point.z * scale) + z;
+						alevelz = alevelz.toFixed(4);
 
-                            }
-                            ctrIntersected++;
-                            //console.log(ctr, txt, item.p2);
-                        }
-                    }
-                    else if (options.addZToAllGCmds && item.args.cmd.match(/^G/i)) {
-                        // this is a G command without a z, so let's test it's a valid G cmd
-                        // for adding a Z value
-                        if (item.args.cmd.match(/G0|G1/i)) {
-                            //console.log("got a G0 or G1 cmd. so good to go to add Z");
-                            ctrGCmd++;
+						//Not sure if this is needed for the object type model
+						if (isobj) {
+							item.p2.autolevelz = alevelz;
+						}
+						// adjust gcode
+						var origtext = orig;
+						var zres = origtext.match(/z {0,}(-{0,1}\d+\.{0,1}\d*)/i);
+						if (zres) {
+							var z = Number(zres[1]);
+							ctrtextwithzmatch++;
+							var newtxt = origtext.replace(/z {0,}(-{0,1}\d+\.{0,1}\d*)/i, "Z" + alevelz);
+							//item.args.oldtext = item.args.origtext;
+							//item.args.origtext = newtxt + " (al z mod " + item.p2.origz + ")";
+							newgcodeline = newtxt + " (al z mod " + z + ")";
+							//console.log("got z:", z, item.args);
 
-                            // now do raycast
-                            var startPoint = new THREE.Vector3(item.p2.x, item.p2.y, item.p2.z + 100);
-                            var ray = new THREE.Raycaster(startPoint, direction);
-                            var rayIntersects = ray.intersectObject(meshGrp, true);
-                            if (rayIntersects[0]) {
+						}
+						ctrIntersected++;
+						//console.log(ctr, txt, item.p2);
+					}
+				}
+				else if (options.addZToAllGCmds && cmd.match(/^(N\d+\s*)?G/i)) {
+					// this is a G command without a z, so let's test it's a valid G cmd
+					// for adding a Z value
+					if (cmd.match(/G0|G1/i)) {
+						//console.log("got a G0 or G1 cmd. so good to go to add Z");
+						ctrGCmd++;
 
-                                ctrGCmdRayIntersected++;
+						//debugger;
 
-                                //item.p2.origz = item.p2.z;
-                                item.p2.autolevelz = rayIntersects[0].point.z + item.p2.z;
-                                item.p2.autolevelz = item.p2.autolevelz.toFixed(4);
+						//debugger;
+						if (z == undefined) {
+							//Since there is no Z, use the last Z either up or down depending
+							z = lastZ;
+						}
+						if (x == undefined) {
+							//Since there is no Z, use the last Z either up or down depending
+							x = lastX;
+						}
+						if (y == undefined) {
+							//Since there is no Z, use the last Z either up or down depending
+							y = lastY;
+						}
 
-                                //item.args.oldtext = item.args.origtext;
-                                newgcodeline = item.args.origtext + "Z" + item.p2.autolevelz + " (al new z)";
-                                //console.log("adding z. new item:", item);
-                            }
+						// now do raycast
+						var startPoint = new THREE.Vector3(x, y, z + 100);
+						var ray = new THREE.Raycaster(startPoint, direction);
+						var rayIntersects = ray.intersectObject(meshGrp, true);
+						if (rayIntersects[0]) {
+							ctrGCmdRayIntersected++;
 
-                        }
-                        else {
-                            //console.log("this is g cmd without G0 or G1");
-                            ctrGCmdNotValid++;
-                        }
-                    }
-                }
-                else if ('text' in item.args) {
-                    newgcodeline = item.args.text;
-                }
-                else {
-                    newgcodeline = "huh? no gcode text???";
+							//item.p2.origz = item.p2.z;
+							alevelz = (rayIntersects[0].point.z * scale) + z;
+							alevelz = alevelz.toFixed(4);
+							
+							//Not sure if this is needed for the object type model
+							if (isobj) {
+								item.p2.autolevelz = alevelz;
+							}
+
+							//item.args.oldtext = item.args.origtext;
+							newgcodeline = orig + " Z" + alevelz + " (al new z)";
+							//console.log("adding z. new item:", item);
+						}
+
+					}
+					else {
+						//console.log("this is g cmd without G0 or G1");
+						ctrGCmdNotValid++;
+					}
                 }
                 // push onto final array of gcode
                 newgcode.push(newgcodeline);
 
                 ctr++;
             });
+			
             console.log("lines of gcode analyzed:", ctr, "with gcode text:", ctrtext, "txt with z val:", ctrtextwithz, "ctrtextwithzmatch:", ctrtextwithzmatch, "intersected (should be same as with z val):", ctrIntersected);
             console.log("did user want z added to all G cmds", options.addZToAllGCmds, "ctrGCmd:", ctrGCmd, "ctrGCmdNotValid:", ctrGCmdNotValid, "ctrGCmdRayIntersected:", ctrGCmdRayIntersected);
             console.log("ctr:", ctr, "len of newgcode arr (should be same as ctr):", newgcode.length);
@@ -2047,7 +2220,9 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
 				var w = window.open();
 				$(w.document.body).html(t);
 			};
-            var parseGcode = function() {
+            var parseGcode = function(_gcode) {
+			
+			
                 var curPos = { x: 0, y: 0, z: 0 };
                 var lastCommand = '';
                 var feedRate = 0;
@@ -2072,7 +2247,8 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
                 var safeZ = parseFloat($('.high-z').val());
 				var mapping = [];
 
-                input.forEach(function(elem) {
+
+                _gcode.forEach(function(elem) {
 					oCodeNum++;
                     addMapping(oCodeNum, elem);
 					var result;
@@ -2455,16 +2631,21 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
                     }
                 });
             };
+			
 
             return {
                 interpolate: function(gcode, _maxDistance, _interpolatorDebug) {
-                    originalGCode = gcode;
+					// grab gcode from textarea
+					var gcodetxt = getWSGCode();
+					
+                    originalGCode = gcodetxt;
                     interpolatorDebug = typeof _interpolatorDebug == "boolean" ? interpolatorDebug : true; //for debugging only       
                     if (typeof _maxDistance == "number") {
                         maxDistance = _maxDistance;
                     }
-                    extractGCode();
-                    parseGcode();
+                    //extractGCode();
+					
+                    parseGcode(gcodetxt);
                     return output;
                 }
             };
@@ -2526,9 +2707,9 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
         </div>
 
         <div class="btn-group" data-style="padding-right:6px;">
-          <button type="button" id="" class="btn btn-xs btn-default com-chilipeppr-widget-autolevel-viewdata"><span class="glyphicon glyphicon-list-alt"></span><span class="glyphicon glyphicon-pushpin" style="margin-left:-2px;color:#666666;"></span>
+          <button type="button" id="" class="btn btn-xs btn-default com-chilipeppr-widget-autolevel-viewdata" data-toggle="popover" data-placement="top" data-title="View Data" data-content="Bring up a window that contains the autolevel json data, this can be used to load it again later." data-html="true" data-delay="500" data-trigger="hover" data-container="body" data-original-title="" ><span class="glyphicon glyphicon-list-alt"></span><span class="glyphicon glyphicon-pushpin" style="margin-left:-2px;color:#666666;"></span>
           </button>
-          <button type="button" id="" class="btn btn-xs btn-default com-chilipeppr-widget-autolevel-togglematrix"><span class="glyphicon glyphicon-th-large"></span>
+          <button type="button" id="" class="btn btn-xs btn-default com-chilipeppr-widget-autolevel-togglematrix" data-toggle="popover" data-placement="top" data-title="Toggle Matrix" data-content="This toggles the display of the autolevel matrix data onto the view of the 3d viewer.  This allows you to visualize the data that has been gathered." data-html="true" data-delay="500" data-trigger="hover" data-container="body" data-original-title="" ><span class="glyphicon glyphicon-th-large"></span>
           </button>
           <button type="button" class="btn btn-xs btn-default dropdown-toggle" style="xpadding:0;" data-toggle="dropdown">
             <span class="glyphicon glyphicon-zoom-in"></span> <span class="caret"></span>
@@ -2545,9 +2726,9 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
         </div>
 
         <div class="btn-group" data-style="padding-right:6px;">
-          <button type="button" id="" class="btn btn-xs btn-default com-chilipeppr-widget-autolevel-gcodeview"><span class="glyphicon glyphicon glyphicon-tasks"></span>
+          <button type="button" id="" class="btn btn-xs btn-default com-chilipeppr-widget-autolevel-gcodeview"data-toggle="popover" data-placement="top" data-title="View GCode" data-content="This brings up a window that shows you the adjusted gcode after the autolevel has been applied." data-html="true" data-delay="500" data-trigger="hover" data-container="body" data-original-title="" ><span class="glyphicon glyphicon glyphicon-tasks"></span>
           </button>
-          <button type="button" id="" class="btn btn-xs btn-default com-chilipeppr-widget-autolevel-gcodesendtows"><span class="glyphicon glyphicon-file"></span><span class="glyphicon glyphicon-share-alt" style="margin-left:-4px;color:#666666;"></span>
+          <button type="button" id="" class="btn btn-xs btn-default com-chilipeppr-widget-autolevel-gcodesendtows"data-toggle="popover" data-placement="top" data-title="Send GCode To Workspace" data-content="This sends the gcode with the autolevel adjustments to the workspace for using." data-html="true" data-delay="500" data-trigger="hover" data-container="body" data-original-title="" ><span class="glyphicon glyphicon-file"></span><span class="glyphicon glyphicon-share-alt" style="margin-left:-4px;color:#666666;"></span>
           </button>
 
           <!-- <button type="button" id="" class="btn btn-xs btn-default com-chilipeppr-widget-autolevel-envelope" >Envelope Gcode
@@ -2789,6 +2970,14 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
           </div>
           <!-- /input-group -->
 
+          <p>The gcode without autoleveling</p>
+
+          <div class="input-group">
+            <textarea class="form-control gcode-clean" placeholder="Click clean gcode" spellcheck="false" rows="5"></textarea>
+            <span class="input-group-btn" style="vertical-align: top;">
+                        <button class="btn btn-default gcode-clean-go" style="" type="button">Clean</button>
+                    </span>
+          </div>
         </div>
 
         <div class="tab-pane" id="autolevel-tutorial">
