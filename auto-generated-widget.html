@@ -323,6 +323,10 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
                 }
             });
 
+			var $tglInterp = $('.com-chilipeppr-widget-autolevel-toggleInterpolate');
+			if (!$tglInterp.is(":visible")) {
+				$tglInterp.show();
+			}
         },
         showData: function() {
             $('#com-chilipeppr-widget-modal-autolevel-view .modal-body textarea').val(JSON.stringify(this.probes, null, " "));
@@ -566,10 +570,19 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
         },
         sendGcodeToWorkspace: function() {
             console.log("sendGcodeToWorkspace");
-            var gcodeline = this.envelope({
-                addZToAllGCmds: true,
-                breakLongGCmdsIntoMoreZ: false
-            });
+			var options;
+			if (typeof options == "undefined") {
+                options = {
+					addZToAllGCmds: true,
+					breakLongGCmdsIntoMoreZ: false
+				};
+            }
+            if ($('.com-chilipeppr-widget-autolevel-toggleInterpolate').hasClass('btn-success')) {
+                options.breakLongGCmdsIntoMoreZ = true;
+            }
+			
+            var gcodeline = this.envelope(options);
+			
             var gcodetxt = gcodeline.join("\n");
             var info = {
                 name: "Auto-Levelled " + gcodetxt.substring(0, 20),
@@ -591,6 +604,9 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
                 addZToAllGCmds: true,
                 breakLongGCmdsIntoMoreZ: false
             };
+            if ($('.com-chilipeppr-widget-autolevel-toggleInterpolate').hasClass('btn-success')) {
+                options.breakLongGCmdsIntoMoreZ = true;
+            }
 
             if (opts !== null && typeof opts != "undefined") {
                 options = opts;
@@ -690,7 +706,10 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
                }
             */
             if (typeof options == "undefined") {
-                options = {};
+                options = {
+					addZToAllGCmds: true,
+					breakLongGCmdsIntoMoreZ: false
+				};
             }
             if ($('.com-chilipeppr-widget-autolevel-toggleInterpolate').hasClass('btn-success')) {
                 options.breakLongGCmdsIntoMoreZ = true;
@@ -750,7 +769,7 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
                 var steps = parseFloat($('.grid-steps').val());
                 if (isNaN(steps) || steps == 0) steps = 5;
 
-                var _gcode = this.interPolator.interpolate(gcode, steps, true); //interpolate gcode into smaller steps.
+                var _gcode = this.interPolator.interpolate(this, gcode, steps, true); //interpolate gcode into smaller steps.
                 //need to raycast interpolated code here.
                 var gcodetxt = _gcode.join("\n");
                 var info = {
@@ -2673,11 +2692,11 @@ cpdefine("inline:com-chilipeppr-widget-autolevel", ["chilipeppr_ready", "ThreeHe
                 });
             };
 			
-
             return {
-                interpolate: function(gcode, _maxDistance, _interpolatorDebug) {
+                interpolate: function(widget, gcode, _maxDistance, _interpolatorDebug) {
 					// grab gcode from textarea
-					var gcodetxt = getWSGCode();
+					debugger;
+					var gcodetxt = widget.getWSGCode();
 					
                     originalGCode = gcodetxt;
                     interpolatorDebug = typeof _interpolatorDebug == "boolean" ? interpolatorDebug : true; //for debugging only       
